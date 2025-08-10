@@ -38,6 +38,23 @@ const CodeReviewer = () => {
             langScript.onload = () => {
               loadedCount++;
               if (loadedCount === languages.length && code) {
+                // Trigger highlighting after all languages are loaded
+                const highlightCode = () => {
+                  if (window.Prism && window.Prism.languages && code) {
+                    try {
+                      const grammar = window.Prism.languages[language] || window.Prism.languages.javascript;
+                      if (grammar) {
+                        const highlighted = window.Prism.highlight(code, grammar, language);
+                        setHighlightedCode(highlighted);
+                      } else {
+                        setHighlightedCode(code);
+                      }
+                    } catch (error) {
+                      console.warn('Prism highlighting failed:', error);
+                      setHighlightedCode(code);
+                    }
+                  }
+                };
                 highlightCode();
               }
             };
@@ -54,33 +71,43 @@ const CodeReviewer = () => {
   // Highlight code when code or language changes
   useEffect(() => {
     const highlightCode = () => {
-      if (
-        window.Prism &&
-        window.Prism.languages &&
-        window.Prism.languages[language] &&
-        code
-      ) {
+      if (window.Prism && window.Prism.languages && code) {
         try {
-          const grammar = window.Prism.languages[language];
-          const highlighted = window.Prism.highlight(code, grammar, language);
-          setHighlightedCode(highlighted);
-        } catch {
+          const grammar = window.Prism.languages[language] || window.Prism.languages.javascript;
+          if (grammar) {
+            const highlighted = window.Prism.highlight(code, grammar, language);
+            setHighlightedCode(highlighted);
+          } else {
+            // Fallback to plain text if language not available
+            setHighlightedCode(code);
+          }
+        } catch (error) {
+          console.warn('Prism highlighting failed:', error);
           setHighlightedCode(code);
         }
       } else {
+        // Show plain text while Prism loads
         setHighlightedCode(code);
       }
     };
 
-    const timeoutId = setTimeout(highlightCode, 100);
-    return () => clearTimeout(timeoutId);
+    // Use requestAnimationFrame for better performance with large code
+    const rafId = requestAnimationFrame(() => {
+      const timeoutId = setTimeout(highlightCode, 50);
+      return () => clearTimeout(timeoutId);
+    });
+    
+    return () => cancelAnimationFrame(rafId);
   }, [code, language]);
 
-  // Sync scroll between textarea and pre
+  // Sync scroll between textarea and pre with throttling for better performance
   const handleScroll = (e) => {
     if (preRef.current) {
-      preRef.current.scrollTop = e.target.scrollTop;
-      preRef.current.scrollLeft = e.target.scrollLeft;
+      // Use requestAnimationFrame for smooth scrolling with large content
+      requestAnimationFrame(() => {
+        preRef.current.scrollTop = e.target.scrollTop;
+        preRef.current.scrollLeft = e.target.scrollLeft;
+      });
     }
   };
 
@@ -90,10 +117,10 @@ const CodeReviewer = () => {
 
     setIsLoading(true);
     try {
-     const response = await axios.post(
-  'https://code-review-backend-4un5.onrender.com/ai/get-review',
-  { code }
-);
+      const response = await axios.post(
+        'https://code-review-backend-4un5.onrender.com/ai/get-review',
+        { code }
+      );
       setReview(response.data);
     } catch (error) {
       setReview('Error occurred while reviewing the code. Please try again.');
@@ -154,29 +181,37 @@ const CodeReviewer = () => {
 
           <div className="flex-1 min-h-0 flex flex-col">
             <div className="flex-1 relative overflow-hidden min-h-0">
-              {/* Code editor container */}
+              {/* Code editor container - FIXED FOR LARGE CODE */}
               <div className="absolute inset-0 flex flex-col">
-                <pre
-                  ref={preRef}
-                  className="absolute inset-0 p-4 sm:p-6 lg:p-8 font-mono text-sm sm:text-base leading-relaxed sm:leading-loose pointer-events-none overflow-auto"
-                  style={{
-                    color: 'transparent',
-                    whiteSpace: 'pre-wrap',
-                    wordWrap: 'break-word',
-                    tabSize: '4',
-                  }}
-                >
-                  <code
-                    className={`language-${language}`}
-                    dangerouslySetInnerHTML={{ __html: highlightedCode }}
-                  />
-                </pre>
-                <textarea
-                  ref={textareaRef}
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  onScroll={handleScroll}
-                  placeholder={`Enter your ${language} code here...
+                <div className="flex-1 relative overflow-hidden">
+                  <pre
+                    ref={preRef}
+                    className="absolute inset-0 p-4 sm:p-6 lg:p-8 font-mono text-sm sm:text-base leading-relaxed sm:leading-loose pointer-events-none overflow-auto whitespace-pre-wrap break-words"
+                    style={{
+                      color: 'transparent',
+                      tabSize: '4',
+                      wordBreak: 'break-word',
+                      overflowWrap: 'break-word',
+                      minHeight: '100%'
+                    }}
+                  >
+                    <code
+                      className={`language-${language}`}
+                      dangerouslySetInnerHTML={{ __html: highlightedCode || code }}
+                      style={{ 
+                        display: 'block',
+                        minHeight: '100%',
+                        whiteSpace: 'pre-wrap',
+                        wordWrap: 'break-word'
+                      }}
+                    />
+                  </pre>
+                  <textarea
+                    ref={textareaRef}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    onScroll={handleScroll}
+                    placeholder={`Enter your ${language} code here...
 
 // Example:
 function greet(name) {
@@ -184,32 +219,40 @@ function greet(name) {
 }
 
 console.log(greet("World"));`}
-                  className="absolute inset-0 w-full h-full p-4 sm:p-6 lg:p-8 bg-transparent text-transparent caret-cyan-400 font-mono text-sm sm:text-base leading-relaxed sm:leading-loose resize-none outline-none overflow-auto placeholder-gray-500"
-                  spellCheck={false}
-                />
-              </div>
-
-              {/* Review Button */}
-              <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 lg:p-8 border-t border-gray-700/30 bg-gradient-to-t from-gray-900/90 to-transparent backdrop-blur-sm">
-                <button
-                  onClick={handleReviewCode}
-                  disabled={!code.trim() || isLoading}
-                  className="w-full px-4 sm:px-6 lg:px-8 py-3 sm:py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 disabled:from-gray-600 disabled:to-gray-600 text-white font-medium rounded-lg sm:rounded-xl transition-all duration-200 flex items-center justify-center gap-2 sm:gap-3 shadow-lg hover:shadow-xl disabled:cursor-not-allowed text-sm sm:text-base lg:text-lg"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
-                      <span className="hidden xs:inline">Reviewing Code...</span>
-                      <span className="xs:hidden">Reviewing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Code2 className="w-4 h-4 sm:w-5 sm:h-5" />
-                      <span className="hidden xs:inline">Review My Code</span>
-                      <span className="xs:hidden">Review</span>
-                    </>
-                  )}
-                </button>
+                    className="absolute inset-0 w-full h-full p-4 sm:p-6 lg:p-8 bg-transparent text-transparent caret-cyan-400 font-mono text-sm sm:text-base leading-relaxed sm:leading-loose resize-none outline-none overflow-auto placeholder-gray-500 whitespace-pre-wrap"
+                    style={{
+                      background: 'transparent',
+                      tabSize: '4',
+                      wordBreak: 'break-word',
+                      overflowWrap: 'break-word',
+                      minHeight: '100%'
+                    }}
+                    spellCheck={false}
+                  />
+                </div>
+                
+                {/* Review Button - MOVED OUTSIDE SCROLLABLE AREA */}
+                <div className="flex-shrink-0 p-4 sm:p-6 lg:p-8 border-t border-gray-700/30 bg-gradient-to-t from-gray-900/90 to-transparent backdrop-blur-sm">
+                  <button
+                    onClick={handleReviewCode}
+                    disabled={!code.trim() || isLoading}
+                    className="w-full px-4 sm:px-6 lg:px-8 py-3 sm:py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 disabled:from-gray-600 disabled:to-gray-600 text-white font-medium rounded-lg sm:rounded-xl transition-all duration-200 flex items-center justify-center gap-2 sm:gap-3 shadow-lg hover:shadow-xl disabled:cursor-not-allowed text-sm sm:text-base lg:text-lg"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                        <span className="hidden xs:inline">Reviewing Code...</span>
+                        <span className="xs:hidden">Reviewing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Code2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                        <span className="hidden xs:inline">Review My Code</span>
+                        <span className="xs:hidden">Review</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
