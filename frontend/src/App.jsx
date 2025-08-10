@@ -90,7 +90,10 @@ const CodeReviewer = () => {
 
     setIsLoading(true);
     try {
-      const response = await axios.post('https://code-review-backend-4un5.onrender.com', { code });
+     const response = await axios.post(
+  'https://code-review-backend-4un5.onrender.com/ai/get-review',
+  { code }
+);
       setReview(response.data);
     } catch (error) {
       setReview('Error occurred while reviewing the code. Please try again.');
